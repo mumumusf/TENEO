@@ -2,6 +2,15 @@
 
 这是一个 TENEO 节点的命令行版本程序。通过运行节点，您可以获得 $TENEO 代币奖励。
 
+## ⭐️ 如何加入项目
+
+1. 访问官方注册链接：[Teneo Community Node](https://bit.ly/teneo-community-node)
+2. 输入邀请码：`F8Fnb`
+3. 完成注册并获取 Access Token
+4. 按照下方部署教程运行节点程序
+
+> 💡 提示：注册后请妥善保存您的 Access Token，它将用于节点程序的运行。
+
 ## 🔥 功能特点
 
 - ✨ 支持多账号管理
