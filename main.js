@@ -58,7 +58,7 @@ const banner = `
 ██╔╝ ██╗██║██║  ██║╚██████╔╝███████║██║ ╚████║
 ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝
 
-    === TENEO  自动化工具 ===
+    === teneo 自动化工具 ===
 ** ====================================== **
 *         此脚本仅供免费使用              *
 *         禁止出售或用于盈利              *
@@ -120,56 +120,78 @@ async function connectWebSocket(token, proxy, accountIndex) {
     const url = "wss://secure.ws.teneo.pro";
     const wsUrl = `${url}/websocket?accessToken=${encodeURIComponent(token)}&version=${encodeURIComponent(version)}`;
 
+    console.log(`正在连接账号 ${accountIndex + 1}...`);
+
     const options = {};
     if (proxy) {
+        console.log(`账号 ${accountIndex + 1} 正在配置代理...`);
         const proxyAgent = parseProxy(proxy);
         if (proxyAgent) {
             options.agent = proxyAgent;
+            console.log(`账号 ${accountIndex + 1} 代理配置成功`);
+        } else {
+            console.error(`账号 ${accountIndex + 1} 代理配置失败`);
         }
     }
 
-    const socket = new WebSocket(wsUrl, options);
-    sockets.set(token, socket);
+    try {
+        const socket = new WebSocket(wsUrl, options);
+        sockets.set(token, socket);
 
-    socket.onopen = async () => {
-        const connectionTime = new Date().toISOString();
-        console.log(`账号 ${accountIndex + 1} 节点连接成功，时间:`, connectionTime);
-        startPinging(token);
-        startCountdownAndPoints(token, accountIndex);
-    };
+        socket.onopen = async () => {
+            const connectionTime = new Date().toISOString();
+            console.log(`账号 ${accountIndex + 1} 节点连接成功，时间:`, connectionTime);
+            startPinging(token);
+            startCountdownAndPoints(token, accountIndex);
+        };
 
-    socket.onmessage = async (event) => {
-        const data = JSON.parse(event.data);
-        if (data.message === 'Connected successfully') {
-            console.log(`账号 ${accountIndex + 1} 节点连接成功！`);
-        } else {
-            console.log(`账号 ${accountIndex + 1} 收到服务器消息:`, {
-                日期: data.date,
-                今日积分: data.pointsToday,
-                总积分: data.pointsTotal,
-                消息: data.message,
-                是否新用户: data.isNewUser
+        socket.onmessage = async (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.message === 'Connected successfully') {
+                    console.log(`账号 ${accountIndex + 1} 节点连接成功！`);
+                } else {
+                    console.log(`账号 ${accountIndex + 1} 收到服务器消息:`, {
+                        日期: data.date,
+                        今日积分: data.pointsToday,
+                        总积分: data.pointsTotal,
+                        消息: data.message,
+                        是否新用户: data.isNewUser
+                    });
+                }
+                if (data.pointsTotal !== undefined && data.pointsToday !== undefined) {
+                    pointsTotals.set(token, data.pointsTotal);
+                    pointsTodays.set(token, data.pointsToday);
+                }
+            } catch (error) {
+                console.error(`账号 ${accountIndex + 1} 处理消息错误:`, error);
+            }
+        };
+
+        let reconnectAttempts = 0;
+        socket.onclose = () => {
+            console.log(`账号 ${accountIndex + 1} 节点连接断开`);
+            sockets.delete(token);
+            stopPinging(token);
+            const delay = Math.min(1000 * 2 ** reconnectAttempts, 30000);
+            console.log(`账号 ${accountIndex + 1} 将在 ${delay/1000} 秒后重新连接`);
+            setTimeout(() => connectWebSocket(token, proxy, accountIndex), delay);
+            reconnectAttempts++;
+        };
+
+        socket.onerror = (error) => {
+            console.error(`账号 ${accountIndex + 1} 节点连接错误:`, error);
+        };
+
+        return new Promise((resolve) => {
+            socket.once('open', () => {
+                resolve();
             });
-        }
-        if (data.pointsTotal !== undefined && data.pointsToday !== undefined) {
-            pointsTotals.set(token, data.pointsTotal);
-            pointsTodays.set(token, data.pointsToday);
-        }
-    };
-
-    let reconnectAttempts = 0;
-    socket.onclose = () => {
-        console.log(`账号 ${accountIndex + 1} 节点连接断开`);
-        sockets.delete(token);
-        stopPinging(token);
-        const delay = Math.min(1000 * 2 ** reconnectAttempts, 30000);
-        setTimeout(() => connectWebSocket(token, proxy, accountIndex), delay);
-        reconnectAttempts++;
-    };
-
-    socket.onerror = (error) => {
-        console.error(`账号 ${accountIndex + 1} 节点连接错误:`, error);
-    };
+        });
+    } catch (error) {
+        console.error(`账号 ${accountIndex + 1} 创建连接失败:`, error);
+        return Promise.reject(error);
+    }
 }
 
 // 断开WebSocket连接
@@ -283,7 +305,7 @@ async function main() {
             console.log(`共添加 ${proxies.filter(p => p !== null).length} 个代理`);
         }
         
-        // 启动所有账号
+        // 串行启动所有账号
         for (let i = 0; i < tokens.length; i++) {
             const currentProxy = i < proxies.length ? proxies[i] : null;
             if (currentProxy) {
@@ -291,9 +313,17 @@ async function main() {
             } else {
                 console.log(`账号 ${i + 1} 不使用代理`);
             }
-            await connectWebSocket(tokens[i], currentProxy, i);
-            // 等待1秒再连接下一个账号
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            try {
+                await connectWebSocket(tokens[i], currentProxy, i);
+                console.log(`账号 ${i + 1} 启动完成`);
+                // 等待10秒再启动下一个账号
+                if (i < tokens.length - 1) {
+                    console.log(`等待10秒后启动下一个账号...`);
+                    await new Promise(resolve => setTimeout(resolve, 10000));
+                }
+            } catch (error) {
+                console.error(`账号 ${i + 1} 启动失败:`, error);
+            }
         }
     });
 }
